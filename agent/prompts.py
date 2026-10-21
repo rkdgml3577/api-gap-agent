@@ -17,6 +17,10 @@ A candidate is {rule_id,description,steps:[{method,path,user,body,expected_statu
 Never invent error JSON fields. Use expected_json {} for error responses. For quantity use exactly four POST steps; for owner include bob GET expecting 403; for shipping cancellation exactly POST then GET.
 Expected statuses and values MUST come from rules; use inspect_schema to learn fixture IDs and users.
 ORDER-001 requires four boundaries 0,1,100,101 in one candidate. ORDER-003 requires cancellation rejection AND a GET checking unchanged status.
+ORDER-003 must be EXACTLY these two steps (the second step's expected_json is mandatory):
+  1) {"method":"POST","path":"/orders/2/cancel","user":"alice","expected_status":409,"expected_json":{}}
+  2) {"method":"GET","path":"/orders/2","user":"alice","expected_status":200,"expected_json":{"status":"shipping"}}
+Do not omit expected_json on the GET step; "status stays shipping" means expected_json {"status":"shipping"}.
 Tool run_candidate_test arguments need only candidate: runtime injects run_id and variant.
 Tool read_test_file needs path; search_tests optionally query; runtime injects variant.
 At finish supply one finding per in-scope rule, citations with actual file paths/line numbers,
