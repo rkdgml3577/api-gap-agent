@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env", override=False)
 from agent.graph import build_graph
+from agent.approval import build_approver
 from agent.llm import OllamaLLM
 from agent.mcp_client import ToolClient
 from tools.repository import list_endpoints
@@ -33,6 +34,7 @@ async def lifespan(app):
 
 app = FastAPI(title="API 검증 누락 탐지 Agent", lifespan=lifespan)
 runs = {}
+approvals = {}  # run_id -> asyncio.Future awaiting a human decision (kept out of the serializable run)
 
 async def analyze(run_id, request):
     run = runs[run_id]
@@ -48,7 +50,8 @@ async def analyze(run_id, request):
     try:
         async with ToolClient() as tools:
             catalog = await tools.catalog()
-            graph = build_graph(llm, tools, catalog, request, run_id, emit)
+            approver = build_approver(run_id, emit, approvals)
+            graph = build_graph(llm, tools, catalog, request, run_id, emit, approver)
             state = await graph.ainvoke({"observations": [], "steps": 0}, config={"recursion_limit": 100})
             run["result"] = {**state["result"], "observations": state.get("observations", []),
                              "steps": state.get("steps", 0), "tokens": llm.tokens,
@@ -95,6 +98,18 @@ async def start(req: AnalysisRequest):
     app.state.tasks.add(task)
     task.add_done_callback(app.state.tasks.discard)
     return {"run_id": run_id}
+
+class ApprovalDecision(BaseModel):
+    approved: bool
+    feedback: str = Field(default="", max_length=1000)
+
+@app.post("/analyses/{run_id}/approve")
+async def approve(run_id: str, decision: ApprovalDecision):
+    future = approvals.get(run_id)
+    if future is None or future.done():
+        raise HTTPException(409, "승인 대기 중인 분석이 없습니다.")
+    future.set_result({"approved": decision.approved, "feedback": decision.feedback, "by": "human"})
+    return {"ok": True}
 
 @app.get("/analyses/{run_id}")
 def report(run_id: str):

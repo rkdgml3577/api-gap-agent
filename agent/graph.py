@@ -85,7 +85,9 @@ def validate_finish(findings, observations, operations):
     return None
 
 
-def build_graph(llm, tools, catalog, request, run_id, emit):
+def build_graph(llm, tools, catalog, request, run_id, emit, approver=None):
+    from agent.approval import AutoApprover
+    approver = approver or AutoApprover()
     max_steps = int(os.getenv("MAX_STEPS", "24"))
     started = time.monotonic()
     async def decide(state):
@@ -164,11 +166,23 @@ def build_graph(llm, tools, catalog, request, run_id, emit):
                 obs = {"tool": "finish_validation", "arguments": {}, "result": {"error": error}}
                 await emit({"type": "revision", "message": error})
                 return {"steps": steps + 1, "observations": state.get("observations", []) + [obs], "action": {}, "done": False}
+            final_findings = [{**next(item for item in state["coverage"] if item["rule_id"] == f.rule_id),
+                               "implementation": f.implementation, "execution_explanation": f.explanation}
+                              for f in action.findings]
+            # Approval gate: a person now, an LLM judge later — same interface.
+            decision = await approver.review(final_findings, context)
+            if decision.get("by") != "auto":
+                await emit({"type": "approval_decision", "approved": decision["approved"],
+                            "by": decision.get("by"), "feedback": decision.get("feedback", "")})
+            if not decision["approved"]:
+                feedback = decision.get("feedback") or "Reviewer rejected the findings; revise and resubmit."
+                obs = {"tool": "approval", "arguments": {}, "result": {"error": "Reviewer rejected: " + feedback}}
+                await emit({"type": "revision", "message": obs["result"]["error"]})
+                return {"steps": steps + 1, "observations": observations + [obs], "action": {}, "done": False}
             return {"steps": steps + 1, "done": True,
-                    "result": {"status": "completed", "findings": [{**next(item for item in state["coverage"] if item["rule_id"] == f.rule_id),
-                                             "implementation": f.implementation, "execution_explanation": f.explanation}
-                                            for f in action.findings],
-                               "initial_coverage": state.get("coverage", [])}}
+                    "result": {"status": "completed", "findings": final_findings,
+                               "initial_coverage": state.get("coverage", []),
+                               "approval": {"by": decision.get("by", "auto"), "feedback": decision.get("feedback", "")}}}
         return {"steps": steps + 1, "action": action.model_dump(), "done": False}
 
     async def execute(state):

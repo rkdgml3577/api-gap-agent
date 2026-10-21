@@ -180,6 +180,40 @@ def test_model_action_schema_restricts_paths_and_tool_arguments():
         validate({'tool':'inspect_schema','arguments':{'path':'common.py'},'reason':'Wrong arguments'},schema)
 
 
+def test_approval_gate_rejects_then_approves():
+    # Model keeps proposing the same valid finish; approver rejects once, then approves.
+    class Model:
+        async def choose(self, context):
+            return Action(tool='finish', reason='Report', findings=[Finding(
+                rule_id='ORDER-001', coverage='missing', evidence=['test_create_order() uses quantity=2'],
+                explanation='boundary missing', implementation='conforms')])
+    class StubApprover:
+        def __init__(self): self.calls=0
+        async def review(self, findings, context):
+            self.calls+=1
+            if self.calls==1:
+                return {"approved": False, "feedback": "cite the boundary you executed", "by": "human"}
+            return {"approved": True, "feedback": "", "by": "human"}
+    async def run():
+        observations=[
+            {'tool':'search_rules','arguments':{},'result':{'content':'rules'}},
+            {'tool':'inspect_schema','arguments':{'operation_id':'create_order'},'result':{}},
+            {'tool':'search_tests','arguments':{},'result':{'files':[{'path':'original.py'}]}},
+            {'tool':'read_test_file','arguments':{'path':'original.py'},'result':{'path':'original.py','content':'def test_create_order(): quantity=2'}},
+            {'tool':'run_candidate_test','arguments':{},'result':{'rule_id':'ORDER-001','status':'passed','observations':[{'actual_status':400}]}}]
+        original=Finding(rule_id='ORDER-001',coverage='missing',evidence=['original.py:1'],explanation='only quantity=2').model_dump()
+        events=[]
+        async def emit(e): events.append(e)
+        approver=StubApprover()
+        graph=build_graph(Model(),None,[],{'goal':'check','operations':['create_order'],'variant':'healthy'},uuid4().hex,emit,approver)
+        state=await graph.ainvoke({'steps':0,'observations':observations,'coverage':[original]})
+        assert approver.calls==2
+        assert state['result']['status']=='completed'
+        assert state['result']['approval']['by']=='human'
+        assert any(e['type']=='revision' and 'Reviewer rejected' in e['message'] for e in events)
+    asyncio.run(run())
+
+
 def test_new_passing_test_cannot_erase_original_coverage_gap():
     class Model:
         def __init__(self): self.count=0
