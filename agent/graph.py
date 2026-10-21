@@ -42,11 +42,12 @@ def validate_finish(findings, observations, operations):
                     "A passing candidate means conforms; a failed assertion means violates.")
         if f.implementation != "unknown":
             if not run.get("observations") or executed_status == "execution_error":
-                return "Implementation claims require actual execution observations."
+                return (f"{f.rule_id} has no successful execution observations this run, so set its implementation to unknown. "
+                        "Only a rule you actually executed (passed or assertion_failed) can be conforms or violates.")
             if f.implementation == "conforms" and executed_status != "passed":
-                return "Conformance requires a passing candidate."
+                return f"{f.rule_id}: conforms requires a passing candidate; it ended {executed_status}."
             if f.implementation == "violates" and executed_status != "assertion_failed":
-                return "Violation requires a failed assertion with observed behavior."
+                return f"{f.rule_id}: violates requires a failed assertion; it ended {executed_status}."
     return None
 
 

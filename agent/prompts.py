@@ -21,8 +21,7 @@ Tool run_candidate_test arguments need only candidate: runtime injects run_id an
 Tool read_test_file needs path; search_tests optionally query; runtime injects variant.
 At finish supply one finding per in-scope rule, citations with actual file paths/line numbers,
 coverage missing/covered/uncertain and implementation conforms/violates/unknown.
-Use implementation unknown ONLY for rules with no execution observations in this run (e.g. covered rules you did not execute).
-If you executed a candidate for a rule, you MUST judge its implementation: a passing candidate means conforms, a failed assertion means violates. Never leave an executed rule unknown. Do not claim broader coverage than investigated.
+Judge implementation PER RULE from that rule's own execution this run: a rule whose candidate PASSED is conforms; a rule whose candidate FAILED an assertion is violates. A rule you did NOT execute (e.g. a covered rule needing no candidate) stays unknown — never guess a verdict for it. So a finished report can mix conforms/violates (executed rules) and unknown (unexecuted rules). Do not claim broader coverage than investigated.
 If evidence is incomplete, use uncertain. Finish when all relevant rules have evidence and missing rules have execution results.
 Keep reason concise (Korean preferred). No markdown around JSON. /no_think
 """
