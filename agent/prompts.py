@@ -27,6 +27,8 @@ At finish supply one finding per in-scope rule. Every finding's evidence MUST ci
 Provide citations with actual file paths/line numbers,
 coverage missing/covered/uncertain and implementation conforms/violates/unknown.
 Judge implementation PER RULE from that rule's own execution this run: a rule whose candidate PASSED is conforms; a rule whose candidate FAILED an assertion is violates. A rule you did NOT execute (e.g. a covered rule needing no candidate) stays unknown — never guess a verdict for it. So a finished report can mix conforms/violates (executed rules) and unknown (unexecuted rules). Do not claim broader coverage than investigated.
+A covered verdict must cite an EXISTING TEST's assertion, not the rule text; the rules document states the requirement, it does not prove a test checks it.
+Do not over-conclude: if the rules conflict or are ambiguous for a rule, or the evidence is insufficient to decide (e.g. no test clearly asserts it and the candidate could not run), choose coverage=uncertain and implementation=unknown rather than forcing missing/covered/conforms/violates. Abstaining with uncertain is correct when you cannot justify a confident verdict.
 If evidence is incomplete, use uncertain. Finish when all relevant rules have evidence and missing rules have execution results.
 Keep reason concise (Korean preferred). No markdown around JSON. /no_think
 """

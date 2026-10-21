@@ -61,12 +61,18 @@ def validate_finish(findings, observations, operations):
     if not set(operations) <= inspected:
         return "Inspect the schema for every selected operation."
     corpus = _evidence_corpus(calls)
+    # Coverage is proven by TESTS, not by the rule text: a "covered" verdict must
+    # point at an existing test's source, never only at the rules document.
+    test_corpus = _evidence_corpus([o for o in calls if o["tool"] in ("read_test_file", "search_tests")])
     for f in findings:
         if not listed or not listed <= read:
             return "List and read ALL existing test files (including common files) before any coverage verdict."
         if not _is_grounded(f.evidence, corpus):
             return (f"{f.rule_id}: cite evidence you actually gathered. At least one citation must reference a "
                     "test file you read (path or test function name) or an execution observation, not prose alone.")
+        if f.coverage == "covered" and not _is_grounded(f.evidence, test_corpus):
+            return (f"{f.rule_id}: a covered verdict must cite an existing TEST (file path or test function you read) "
+                    "that asserts the rule, not the rules document. If no test asserts it, it is missing or uncertain.")
         if f.coverage == "missing" and f.rule_id not in executed:
             return f"Execute a candidate for {f.rule_id} before finishing."
         run = executed.get(f.rule_id, {})

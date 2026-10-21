@@ -180,6 +180,36 @@ def test_model_action_schema_restricts_paths_and_tool_arguments():
         validate({'tool':'inspect_schema','arguments':{'path':'common.py'},'reason':'Wrong arguments'},schema)
 
 
+def test_covered_must_cite_a_test_not_the_rules_doc():
+    observations = [
+        {'tool':'search_rules','arguments':{},'result':{'content':'ORDER-001 QUANTITYBOUND is 1..100'}},
+        {'tool':'inspect_schema','arguments':{'operation_id':'create_order'},'result':{}},
+        {'tool':'search_tests','arguments':{},'result':{'files':[{'path':'t.py'}]}},
+        {'tool':'read_test_file','arguments':{'path':'t.py'},'result':{'path':'t.py','content':'def test_other(): pass'}}]
+    f = Finding(rule_id='ORDER-001', coverage='covered', evidence=['QUANTITYBOUND per the rules'],
+                explanation='x', implementation='unknown')
+    msg = validate_finish([f], observations, ['create_order'])
+    assert msg is not None and 'covered verdict must cite an existing TEST' in msg
+
+
+def test_approval_policy_triggers_only_on_high_stakes():
+    from agent.approval import review_reasons
+    assert review_reasons([{'rule_id':'ORDER-003','coverage':'missing','implementation':'violates'}])
+    assert review_reasons([{'rule_id':'ORDER-002','coverage':'uncertain','implementation':'unknown'}])
+    assert review_reasons([{'rule_id':'ORDER-001','coverage':'covered','implementation':'unknown'}]) == []
+
+
+def test_human_approver_auto_passes_routine_results():
+    from agent.approval import HumanApprover
+    async def emit(e): pass
+    async def run():
+        ha = HumanApprover('r', emit, {})  # empty store; must NOT wait on a future
+        findings = [{'rule_id':'ORDER-001','coverage':'covered','implementation':'unknown'}]
+        return await asyncio.wait_for(ha.review(findings, {}), timeout=1)
+    decision = asyncio.run(run())
+    assert decision['approved'] and decision['by'] == 'policy-auto'
+
+
 def test_approval_gate_rejects_then_approves():
     # Model keeps proposing the same valid finish; approver rejects once, then approves.
     class Model:

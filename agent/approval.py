@@ -15,6 +15,23 @@ import asyncio
 import os
 
 
+def review_reasons(findings):
+    """Which findings make a result high-stakes enough to need human sign-off.
+
+    Criteria come from APPROVAL_TRIGGERS (default: violates,uncertain) so the
+    gate interrupts a person only for a claimed rule violation or a verdict the
+    agent itself could not settle — not for routine, well-evidenced results.
+    """
+    triggers = {t.strip() for t in os.getenv("APPROVAL_TRIGGERS", "violates,uncertain").split(",") if t.strip()}
+    reasons = []
+    for f in findings:
+        if "violates" in triggers and f.get("implementation") == "violates":
+            reasons.append(f"{f.get('rule_id')}: 규칙 위반(violates) 판정 — 결함 주장은 사람 확인 필요")
+        if "uncertain" in triggers and f.get("coverage") == "uncertain":
+            reasons.append(f"{f.get('rule_id')}: 커버리지 판단 보류(uncertain) — 근거가 불충분")
+    return reasons
+
+
 class AutoApprover:
     """Default: approve everything. Keeps runs non-interactive and unchanged."""
 
@@ -37,9 +54,13 @@ class HumanApprover:
         self.timeout = timeout if timeout is not None else float(os.getenv("APPROVAL_TIMEOUT", "600"))
 
     async def review(self, findings, context):
+        reasons = review_reasons(findings)
+        if not reasons:
+            # Routine, well-evidenced result — no need to interrupt a person.
+            return {"approved": True, "feedback": "", "by": "policy-auto"}
         future = asyncio.get_event_loop().create_future()
         self.store[self.run_id] = future
-        await self.emit({"type": "approval_request", "findings": findings})
+        await self.emit({"type": "approval_request", "findings": findings, "reasons": reasons})
         try:
             decision = await asyncio.wait_for(future, timeout=self.timeout)
         except asyncio.TimeoutError:
