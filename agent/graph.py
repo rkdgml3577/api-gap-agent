@@ -35,13 +35,17 @@ def validate_finish(findings, observations, operations):
             return "Before declaring missing, list and read ALL existing test files, including common files."
         if f.coverage == "missing" and f.rule_id not in executed:
             return f"Execute a candidate for {f.rule_id} before finishing."
+        run = executed.get(f.rule_id, {})
+        executed_status = run.get("status")
+        if f.implementation == "unknown" and executed_status in ("passed", "assertion_failed") and run.get("observations"):
+            return (f"{f.rule_id} was executed (status {executed_status}); do not leave implementation unknown. "
+                    "A passing candidate means conforms; a failed assertion means violates.")
         if f.implementation != "unknown":
-            run = executed.get(f.rule_id, {})
-            if not run.get("observations") or run.get("status") == "execution_error":
+            if not run.get("observations") or executed_status == "execution_error":
                 return "Implementation claims require actual execution observations."
-            if f.implementation == "conforms" and run.get("status") != "passed":
+            if f.implementation == "conforms" and executed_status != "passed":
                 return "Conformance requires a passing candidate."
-            if f.implementation == "violates" and run.get("status") != "assertion_failed":
+            if f.implementation == "violates" and executed_status != "assertion_failed":
                 return "Violation requires a failed assertion with observed behavior."
     return None
 
