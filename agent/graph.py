@@ -86,6 +86,10 @@ def build_graph(llm, tools, catalog, request, run_id, emit):
             result = dict(observation["result"])
             if observation["tool"] == "run_candidate_test":
                 result.pop("log", None)
+            # Test file content is already carried once in original_test_sources_only;
+            # drop the duplicate copy here to keep each prompt small.
+            if observation["tool"] == "read_test_file" and "content" in result:
+                result = {**result, "content": "(see original_test_sources_only)"}
             model_observations.append({**observation, "result": result})
         originals = {o["result"]["path"]: o["result"]["content"] for o in successful
                      if o["tool"] == "read_test_file"}

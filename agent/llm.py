@@ -65,7 +65,7 @@ class OllamaLLM:
             response = await client.post(self.url + "/api/chat", json={
                 "model": self.model, "stream": False, "think": False,
                 "format": schema,
-                "options": {"temperature": 0, "num_ctx": 16384, "num_predict": 2500},
+                "options": {"temperature": 0, "num_ctx": 16384, "num_predict": 1500},
                 "messages": [{"role": "system", "content": SYSTEM},
                              {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]})
             response.raise_for_status()
