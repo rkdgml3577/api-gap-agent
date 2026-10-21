@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import time
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
@@ -14,6 +16,36 @@ class State(TypedDict, total=False):
 
 RULE_OPERATIONS = {"ORDER-001": "create_order", "ORDER-002": "get_order", "ORDER-003": "cancel_order"}
 
+def _evidence_corpus(calls):
+    """Everything the agent actually gathered this run, as searchable text:
+    read test sources, retrieved rules, listed paths, and execution observations.
+    Used to confirm a finding cites evidence that genuinely exists."""
+    parts = []
+    for o in calls:
+        tool, result = o["tool"], o["result"]
+        if tool == "read_test_file":
+            parts.append(o["arguments"].get("path", ""))
+            parts.append(str(result.get("content", "")))
+        elif tool == "search_tests":
+            parts += [f["path"] for f in result.get("files", [])]
+        elif tool == "search_rules":
+            parts.append(str(result.get("content", "")))
+        elif tool == "run_candidate_test":
+            parts.append(json.dumps(result.get("observations", []), ensure_ascii=False))
+    return "\n".join(parts)
+
+
+def _is_grounded(evidence, corpus):
+    """A finding is grounded when at least one citation shares a concrete token
+    (a path or an identifier like a test-function name) with gathered evidence.
+    Pure prose with no checkable token cannot be verified, so it is not grounding."""
+    for citation in evidence:
+        for token in re.findall(r"[A-Za-z_][A-Za-z0-9_.]{3,}", citation):
+            if token in corpus:
+                return True
+    return False
+
+
 def validate_finish(findings, observations, operations):
     """Structural evidence guards, not a substitute for semantic evaluation."""
     expected = {r for r, op in RULE_OPERATIONS.items() if op in operations}
@@ -28,11 +60,13 @@ def validate_finish(findings, observations, operations):
     inspected = {o["arguments"].get("operation_id") for o in calls if o["tool"] == "inspect_schema"}
     if not set(operations) <= inspected:
         return "Inspect the schema for every selected operation."
+    corpus = _evidence_corpus(calls)
     for f in findings:
-        if f.coverage == "covered" and not read:
-            return "Read actual assertions before claiming coverage."
-        if f.coverage == "missing" and (not listed or not listed <= read):
-            return "Before declaring missing, list and read ALL existing test files, including common files."
+        if not listed or not listed <= read:
+            return "List and read ALL existing test files (including common files) before any coverage verdict."
+        if not _is_grounded(f.evidence, corpus):
+            return (f"{f.rule_id}: cite evidence you actually gathered. At least one citation must reference a "
+                    "test file you read (path or test function name) or an execution observation, not prose alone.")
         if f.coverage == "missing" and f.rule_id not in executed:
             return f"Execute a candidate for {f.rule_id} before finishing."
         run = executed.get(f.rule_id, {})

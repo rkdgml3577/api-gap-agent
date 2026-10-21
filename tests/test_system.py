@@ -54,6 +54,30 @@ def test_scope_guard():
     assert validate_finish([], [], ['get_order']) is not None
 
 
+def _full_obs(content, exec_status='passed'):
+    return [
+        {'tool':'search_rules','arguments':{},'result':{'content':'rules'}},
+        {'tool':'inspect_schema','arguments':{'operation_id':'get_order'},'result':{}},
+        {'tool':'search_tests','arguments':{},'result':{'files':[{'path':'test_common.py'}]}},
+        {'tool':'read_test_file','arguments':{'path':'test_common.py'},'result':{'path':'test_common.py','content':content}},
+        {'tool':'run_candidate_test','arguments':{},'result':{'rule_id':'ORDER-002','status':exec_status,'observations':[{'actual_status':403}]}}]
+
+
+def test_ungrounded_citation_is_rejected():
+    # Cites a test function that does not appear in anything the agent gathered.
+    f = Finding(rule_id='ORDER-002', coverage='missing', evidence=['test_phantom_owner()'],
+                explanation='x', implementation='unknown')
+    msg = validate_finish([f], _full_obs('def test_order_access_isolation(): ...'), ['get_order'])
+    assert msg is not None and 'cite evidence' in msg
+
+
+def test_grounded_citation_passes():
+    # Cites a function that really appears in the read test content.
+    f = Finding(rule_id='ORDER-002', coverage='missing', evidence=['test_order_access_isolation() checks 403'],
+                explanation='x', implementation='conforms')
+    assert validate_finish([f], _full_obs('def test_order_access_isolation(): assert r.status_code==403'), ['get_order']) is None
+
+
 def test_metrics_do_not_call_missing_predictions_perfect_precision():
     result = score({'status':'completed','findings':[]}, {'missing':['ORDER-001'],'defects':[]})
     assert result['precision'] is None
@@ -163,7 +187,7 @@ def test_new_passing_test_cannot_erase_original_coverage_gap():
             self.count+=1
             return Action(tool='finish', reason='Report execution', findings=[Finding(
                 rule_id='ORDER-001', coverage='covered' if self.count == 1 else 'missing',
-                evidence=['sample_service/tests/test_orders.py:6'], explanation='Generated boundary checks pass',
+                evidence=['original.py:6'], explanation='Generated boundary checks pass',
                 implementation='conforms')])
     async def run():
         observations=[

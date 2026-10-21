@@ -23,7 +23,8 @@ ORDER-003 must be EXACTLY these two steps (the second step's expected_json is ma
 Do not omit expected_json on the GET step; "status stays shipping" means expected_json {"status":"shipping"}.
 Tool run_candidate_test arguments need only candidate: runtime injects run_id and variant.
 Tool read_test_file needs path; search_tests optionally query; runtime injects variant.
-At finish supply one finding per in-scope rule, citations with actual file paths/line numbers,
+At finish supply one finding per in-scope rule. Every finding's evidence MUST cite something you actually gathered: a test file path/line or test function name you read, or an execution observation. For violates/conforms cite the executed candidate's observed result, not an unrelated existing test.
+Provide citations with actual file paths/line numbers,
 coverage missing/covered/uncertain and implementation conforms/violates/unknown.
 Judge implementation PER RULE from that rule's own execution this run: a rule whose candidate PASSED is conforms; a rule whose candidate FAILED an assertion is violates. A rule you did NOT execute (e.g. a covered rule needing no candidate) stays unknown — never guess a verdict for it. So a finished report can mix conforms/violates (executed rules) and unknown (unexecuted rules). Do not claim broader coverage than investigated.
 If evidence is incomplete, use uncertain. Finish when all relevant rules have evidence and missing rules have execution results.
