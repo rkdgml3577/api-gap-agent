@@ -1,0 +1,22 @@
+{
+  "healthy": {
+    "missing": [
+      "ORDER-001",
+      "ORDER-003"
+    ],
+    "defects": []
+  },
+  "buggy": {
+    "missing": [
+      "ORDER-001",
+      "ORDER-003"
+    ],
+    "defects": [
+      "ORDER-003"
+    ]
+  },
+  "covered": {
+    "missing": [],
+    "defects": []
+  }
+}
