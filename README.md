@@ -115,8 +115,9 @@ covered 구성에 추가되는 테스트 코드만 기존 테스트 자료로 �
 
 1. 진행 사항 소개
    - 1.0 문제 정의 (Pain Point)
-   - 1.1 과제 2 — 프로젝트 주제 및 주요 Task
-   - 1.2 과제 1 — 추가·수정한 Task
+   - 1.1 프로젝트 주제 및 주요 Task
+   - 1.2 추가·수정한 Task
+   - 1.3 시스템 아키텍처
 2. 사용한 기술 요소 및 구현 결과
    - 2.1 적용한 기술 요소
    - 2.2 기존 기능 개선 및 추가 구현
@@ -187,6 +188,57 @@ covered 구성에 추가되는 테스트 코드만 기존 테스트 자료로 �
 | 7 | **속도·형식 개선** | 후보 형식 반복 거절 해결, 입력 중복 제거·생성 상한으로 지연 단축 |
 
 > **요약.** 기존 뼈대를 실제 실행으로 검증하며 정확도·신뢰성·속도를 개선한 작업이다.
+
+### 1.3 시스템 아키텍처
+
+사용자 화면부터 데이터·모델까지 다섯 계층으로 구성된다. 조사 순서는 코드가 아니라 모델이 정하며(자율 루프), 모든 LLM 호출은 로컬에서 처리한다.
+
+```mermaid
+flowchart TD
+    subgraph UI["사용자"]
+        WEB["웹 화면<br/>Vue 3 · daisyUI · SSE"]
+    end
+    subgraph SVC["서비스"]
+        API["API 서버<br/>FastAPI · /analyses · /approve · SSE"]
+        LOG[("실행 기록<br/>outputs/run_id · events.jsonl · report.json")]
+    end
+    subgraph AGT["에이전트"]
+        GRAPH["총괄 에이전트<br/>LangGraph decide↔execute · 구조화 출력"]
+        APPROVE["사람 승인 게이트<br/>Approver 주입 (Auto/Human→LLM)"]
+    end
+    subgraph TOOL["도구 (MCP)"]
+        MCP["MCP 도구 서버<br/>fastmcp stdio · 6 tools"]
+        RAG["리트리버<br/>임베딩 top-k (RAG)"]
+    end
+    subgraph DATA["데이터 · 모델"]
+        RULES[("업무 규칙 · OpenAPI 명세")]
+        TESTS[("기존 테스트 · 대상 서비스<br/>sample_service 주문 API 3개")]
+        GT[("평가 정답<br/>MCP 접근 차단")]
+    end
+    subgraph LLM["로컬 모델 (외부 API 미사용)"]
+        OLLAMA["Ollama qwen3:8b<br/>판단 · 임베딩"]
+    end
+
+    WEB -->|요청 / SSE| API
+    API -->|저장| LOG
+    API -->|분석 구동| GRAPH
+    GRAPH -->|종료 전 승인| APPROVE
+    GRAPH -->|판단 호출| OLLAMA
+    GRAPH -->|도구 호출| MCP
+    MCP -->|조회 · 실행| RULES
+    MCP -->|조회 · 실행| TESTS
+    MCP -->|RETRIEVAL=rag| RAG
+    RAG -->|임베딩| OLLAMA
+    RAG -->|검색| RULES
+```
+
+- **사용자**: 분석 범위·환경을 고르고, 진행 과정과 결과를 실시간(SSE)으로 본다.
+- **서비스**: FastAPI가 분석을 구동하고 실행 기록을 `outputs/`에 남긴다.
+- **에이전트**: LangGraph 자율 루프가 조사를 주도하고, 종료 직전 승인 게이트(의존성 주입)를 거친다. **단일 에이전트**로, 역할 분리(멀티 에이전트)는 미적용이다.
+- **도구(MCP)**: 6개 도구를 별도 프로세스로 제공하며, `RETRIEVAL=rag`일 때 리트리버가 관련 자료만 검색한다.
+- **데이터·모델**: 규칙·명세·기존 테스트·대상 서비스가 입력이며, **평가 정답은 MCP 접근에서 차단**된다. LLM은 로컬 Ollama만 쓴다.
+
+> **요약.** 모델이 조사 순서를 스스로 정하되, 증거 가드레일과 사람 승인이 결론을 통제하고, 모든 LLM 호출은 로컬에서 처리하는 5계층 구조이다.
 
 ---
 
