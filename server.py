@@ -22,7 +22,7 @@ from tools.repository import list_endpoints
 class AnalysisRequest(BaseModel):
     goal: str = Field(default="업무 규칙에 대한 검증 누락을 조사하고 테스트 실행 결과를 보고해 주세요.", max_length=2000)
     operations: list[Literal["create_order", "get_order", "cancel_order"]] = Field(default=["create_order", "get_order", "cancel_order"], min_length=1)
-    variant: Literal["healthy", "buggy", "covered"] = "healthy"
+    variant: Literal["healthy", "buggy", "covered", "ambiguous"] = "healthy"
 
 @asynccontextmanager
 async def lifespan(app):

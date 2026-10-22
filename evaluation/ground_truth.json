@@ -18,5 +18,14 @@
   "covered": {
     "missing": [],
     "defects": []
+  },
+  "ambiguous": {
+    "missing": [
+      "ORDER-003"
+    ],
+    "defects": [],
+    "uncertain": [
+      "ORDER-001"
+    ]
   }
 }

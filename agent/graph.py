@@ -16,6 +16,30 @@ class State(TypedDict, total=False):
 
 RULE_OPERATIONS = {"ORDER-001": "create_order", "ORDER-002": "get_order", "ORDER-003": "cancel_order"}
 
+RULE_HEADER = re.compile(r"ORDER-\d{3}")
+
+def detect_rule_conflicts(rules_text):
+    """Flag a rule whose own section states two different upper bounds — a
+    structural (non-semantic) signal that the document contradicts itself, so a
+    confident coverage verdict is not justified. Lightweight, not exhaustive:
+    it catches the quantity-bound conflict, not every possible contradiction."""
+    sections, current = {}, None
+    for raw in rules_text.splitlines():
+        line = raw.split(":", 1)[-1] if re.match(r"^\s*\d+:", raw) else raw  # strip numbered() prefix
+        header = RULE_HEADER.search(line)
+        if line.lstrip().startswith("##") and header:
+            current = header.group(0); sections[current] = ""
+        elif current:
+            sections[current] += line + "\n"
+    conflicts = set()
+    for rule_id, text in sections.items():
+        maxima = {int(b) for _, b in re.findall(r"(\d+)\s*~\s*(\d+)", text)}
+        maxima |= {int(n) for n in re.findall(r"(?:상한|최대)[은는이가]?\s*(\d+)", text)}
+        if len(maxima) > 1:
+            conflicts.add(rule_id)
+    return conflicts
+
+
 def _evidence_corpus(calls):
     """Everything the agent actually gathered this run, as searchable text:
     read test sources, retrieved rules, listed paths, and execution observations.
@@ -64,10 +88,17 @@ def validate_finish(findings, observations, operations):
     # Coverage is proven by TESTS, not by the rule text: a "covered" verdict must
     # point at an existing test's source, never only at the rules document.
     test_corpus = _evidence_corpus([o for o in calls if o["tool"] in ("read_test_file", "search_tests")])
+    rules_text = next((o["result"].get("content", "") for o in calls if o["tool"] == "search_rules"), "")
+    conflicts = detect_rule_conflicts(rules_text)
     for f in findings:
+        if f.rule_id in conflicts and f.coverage != "uncertain":
+            return (f"{f.rule_id}: the rules document states conflicting requirements (e.g. two different bounds) "
+                    "for this rule, so its coverage cannot be judged confidently. Use coverage=uncertain.")
         if not listed or not listed <= read:
             return "List and read ALL existing test files (including common files) before any coverage verdict."
-        if not _is_grounded(f.evidence, corpus):
+        # Grounding applies to CONFIDENT verdicts only. An "uncertain" finding makes no
+        # claim to justify with gathered test evidence (its basis is a conflict / lack of it).
+        if f.coverage != "uncertain" and not _is_grounded(f.evidence, corpus):
             return (f"{f.rule_id}: cite evidence you actually gathered. At least one citation must reference a "
                     "test file you read (path or test function name) or an execution observation, not prose alone.")
         if f.coverage == "covered" and not _is_grounded(f.evidence, test_corpus):
@@ -119,6 +150,9 @@ def build_graph(llm, tools, catalog, request, run_id, emit, approver=None):
                     "uninspected_operations": sorted(set(request["operations"]) - inspected),
                     "rules_in_scope": [r for r, op in RULE_OPERATIONS.items() if op in request["operations"]],
                     "existing_coverage_assessment": coverage,
+                    "conflicting_rules": sorted(detect_rule_conflicts(
+                        next((o["result"].get("content", "") for o in successful if o["tool"] == "search_rules"), ""))),
+                    "conflict_instruction": "Rules listed in conflicting_rules state contradictory requirements; you cannot judge their coverage confidently — mark them coverage=uncertain.",
                     "coverage_instruction": "Existing coverage was assessed BEFORE new tests. Never change it based on new execution results.",
                     "executed_candidates": [{"rule_id": o["result"].get("rule_id"), "status": o["result"].get("status")}
                                             for o in successful if o["tool"] == "run_candidate_test"],
@@ -152,6 +186,14 @@ def build_graph(llm, tools, catalog, request, run_id, emit, approver=None):
             expected = {r for r, op in RULE_OPERATIONS.items() if op in request["operations"]}
             if {f.rule_id for f in action.findings} != expected or len(action.findings) != len(expected):
                 obs = {"tool": "assessment_validation", "arguments": {}, "result": {"error": "Provide exactly one existing-coverage finding per in-scope rule, based ONLY on original test sources."}}
+                await emit({"type": "revision", "message": obs["result"]["error"]})
+                return {"steps": steps + 1, "observations": observations + [obs], "action": {}, "done": False}
+            conflicts = detect_rule_conflicts(
+                next((o["result"].get("content", "") for o in successful if o["tool"] == "search_rules"), ""))
+            forced = [f.rule_id for f in action.findings if f.rule_id in conflicts and f.coverage != "uncertain"]
+            if forced:
+                obs = {"tool": "assessment_validation", "arguments": {}, "result": {"error":
+                       f"{', '.join(sorted(forced))}: rules document is self-contradictory for these; assess their coverage as uncertain."}}
                 await emit({"type": "revision", "message": obs["result"]["error"]})
                 return {"steps": steps + 1, "observations": observations + [obs], "action": {}, "done": False}
             assessment = [{**f.model_dump(), "implementation": "unknown"} for f in action.findings]
@@ -196,7 +238,7 @@ def build_graph(llm, tools, catalog, request, run_id, emit, approver=None):
             return {}
         action = Action.model_validate(state["action"])
         arguments = dict(action.arguments)
-        if action.tool in ("search_tests", "read_test_file", "run_candidate_test"):
+        if action.tool in ("search_rules", "search_tests", "read_test_file", "run_candidate_test"):
             arguments["variant"] = request["variant"]
         if action.tool == "run_candidate_test":
             arguments["run_id"] = run_id

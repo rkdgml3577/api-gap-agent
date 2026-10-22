@@ -192,6 +192,37 @@ def test_covered_must_cite_a_test_not_the_rules_doc():
     assert msg is not None and 'covered verdict must cite an existing TEST' in msg
 
 
+def test_rag_top_k_ranks_by_similarity():
+    from agent.retrieval import top_k
+    vocab = ["order", "payment"]
+    embed = lambda texts: [[t.count("order"), t.count("payment")] for t in texts]
+    items = [("r1", "order order"), ("r2", "payment"), ("r3", "order")]
+    assert top_k("order order", items, 2, embed=embed) == ["r1", "r3"]
+    assert top_k("order", items, 0, embed=embed) == ["r1", "r2", "r3"]  # k<=0 -> all
+
+
+def test_conflict_detector_flags_contradictory_bounds():
+    from agent.graph import detect_rule_conflicts
+    assert detect_rule_conflicts("## ORDER-001\n수량은 1~100. 단 상한은 50이다.") == {"ORDER-001"}
+    assert detect_rule_conflicts("## ORDER-001\n수량은 1~100(양 끝 포함). 0과 101은 거절.") == set()
+
+
+def test_conflicted_rule_must_be_uncertain():
+    obs = [
+        {'tool':'search_rules','arguments':{},'result':{'content':'## ORDER-002\n값은 1~100. 단 상한은 50.'}},
+        {'tool':'inspect_schema','arguments':{'operation_id':'get_order'},'result':{}},
+        {'tool':'search_tests','arguments':{},'result':{'files':[{'path':'t.py'}]}},
+        {'tool':'read_test_file','arguments':{'path':'t.py'},'result':{'path':'t.py','content':'def test_order_access_isolation(): pass'}}]
+    f = Finding(rule_id='ORDER-002', coverage='missing', evidence=['test_order_access_isolation()'],
+                explanation='x', implementation='unknown')
+    msg = validate_finish([f], obs, ['get_order'])
+    assert msg is not None and 'uncertain' in msg
+    # same rule as uncertain → conflict guard passes
+    f2 = Finding(rule_id='ORDER-002', coverage='uncertain', evidence=['test_order_access_isolation()'],
+                 explanation='x', implementation='unknown')
+    assert validate_finish([f2], obs, ['get_order']) is None
+
+
 def test_approval_policy_triggers_only_on_high_stakes():
     from agent.approval import review_reasons
     assert review_reasons([{'rule_id':'ORDER-003','coverage':'missing','implementation':'violates'}])

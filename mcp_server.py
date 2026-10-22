@@ -5,7 +5,7 @@ from tools import repository as repo
 from tools.runner import run_candidate, Candidate
 
 mcp = FastMCP("api-gap-tools")
-Variant = Literal["healthy", "buggy", "covered"]
+Variant = Literal["healthy", "buggy", "covered", "ambiguous"]
 
 @mcp.tool()
 def list_endpoints() -> dict:
@@ -13,9 +13,9 @@ def list_endpoints() -> dict:
     return repo.list_endpoints()
 
 @mcp.tool()
-def search_rules(query: str = "") -> dict:
+def search_rules(variant: Variant = "healthy", query: str = "") -> dict:
     """Retrieve numbered business rules. Small corpus: returns all rules."""
-    return repo.search_rules(query)
+    return repo.search_rules(variant, query)
 
 @mcp.tool()
 def inspect_schema(operation_id: str) -> dict:
